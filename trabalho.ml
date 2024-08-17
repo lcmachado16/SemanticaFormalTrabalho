@@ -42,11 +42,11 @@ type expr =
 (*tipo maybe*)
   | Nothing of tipo
   | Just of expr 
-  | MayberMatch of expr * expr * ident * expr
+  | MatchMaybe of expr * expr * ident * expr
 (*tipo list*)
   | Nil of tipo 
   | Cons  of expr*expr
-  | MatchList of expr*expr*ident*expr 
+  | MatchList of expr*expr*ident*ident*expr 
 
 
 
@@ -174,18 +174,17 @@ let rec typeinfer (tenv:tenv) (e:expr) : tipo =
      match t2 with
      | TyList t when t = t1 -> TyList t1
      | _ -> raise("Type mismatch in Cons: second argument must be a list of the same type as the first argument")
-
-(*MatchList*)
-|MatchList(e1,e2,ident,e3) ->
- let t1 = typeinfer tenv e1 in
- let t2 = typeinfer tenv e2 in
- match t1 with
-   | TyList t ->
-     let extended_env = (ident, TyList t) :: tenv in 
-     let t3 = typeinfer extended_env e3 in
-     if t2 = t3 then t2
-     else raise("tipos do corpo não condizem")
-   | _ -> raise ("o e1 deve ser uma lista")
+(*Match List*)
+| MatchList(e1, e2, head_ident, tail_ident, e3) ->
+    let t1 = typeinfer tenv e1 in
+    (match t1 with
+     | TyList t ->
+         let t2 = typeinfer tenv e2 in
+         let extended_env = (head_ident, t) :: (tail_ident, TyList t) :: tenv in
+         let t3 = typeinfer extended_env e3 in
+         if t2 = t3 then t2
+         else raise( "Type mismatch in MatchList: types of e2 and e3 must be the same")
+     | _ -> raise ("Type mismatch in MatchList: e1 must be of type List"))
 
 (*MatchMaybe*)
  |MatchMaybe(e1,e2,ident,e3) ->
@@ -319,7 +318,6 @@ let int_bse (e:expr) : unit =
     TypeError msg ->  print_string ("erro de tipo - " ^ msg) 
   | BugTypeInfer  ->  print_string "corrigir bug em typeinfer"
   | BugParser     ->  print_string "corrigir bug no parser para let rec"
-
 
 
 
