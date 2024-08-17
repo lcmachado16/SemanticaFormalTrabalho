@@ -6,7 +6,7 @@
 
 
 
-(**+++++++++++++++++++++++++++++++++++++++++*)
+(*+++++++++++++++++++++++++++++++++++++++++*)
 (*  SINTAXE, AMBIENTE de TIPOS e de VALORES *)
 (*++++++++++++++++++++++++++++++++++++++++++*)
 
@@ -15,6 +15,10 @@ type tipo =
   | TyBool
   | TyFn of tipo * tipo
   | TyPair of tipo * tipo
+
+  (*TRABALHO: NOVOS TIPOS*)
+  | TyList of tipo
+  | TyMaybe of tipo
               
 
 type ident = string
@@ -34,6 +38,18 @@ type expr =
   | App of expr * expr
   | Let of ident * tipo * expr * expr
   | LetRec of ident * tipo * expr  * expr
+ (*TRABALHO: NOVAS EXPRESSOES*)
+(*tipo maybe*)
+  | Nothing of tipo
+  | Just of expr 
+  | MayberMatch of expr * expr * ident * expr
+(*tipo list*)
+  | Nil of tipo 
+  | Cons  of expr*expr
+  | MatchList of expr*expr*ident*expr 
+
+
+
   
 type valor = 
     VNum of int
@@ -41,6 +57,13 @@ type valor =
   | VPair of valor * valor
   | VClos  of ident * expr * renv
   | VRClos of ident * ident * expr * renv 
+
+ (*TRABALHO: NOVOS VALORES*)
+  | Nil of tipo
+  | Vjust of valor
+  | Nothing of tipo
+  | Vlist of valor*valor
+
 and  
   renv = (ident * valor) list
               
@@ -53,7 +76,7 @@ exception BugParser
   
 
   
-  (**+++++++++++++++++++++++++++++++++++++++++*)
+  (*+++++++++++++++++++++++++++++++++++++++++*)
 (*         INFERÊNCIA DE TIPOS              *)
 (*++++++++++++++++++++++++++++++++++++++++++*)
 
@@ -135,9 +158,53 @@ let rec typeinfer (tenv:tenv) (e:expr) : tipo =
       then typeinfer tenv_com_tf e2
       else raise (TypeError "tipo da funcao recursiva é diferente do declarado")
   | LetRec _ -> raise BugParser
+
+(*Nothing*)
+  |Nothing(t) -> TyMaybe t 
+(*Nil*)
+  | Nil(t) -> Tylist t
+(*just*)
+  | Just(e1) -> 
+      let t1 = typeinfer tenv e1 in 
+      TyMaybe t1
+(*Cons*)
+ | Cons(e1,e2) ->
+     let t1 = typeinfer tenv e1 in 
+     let t2 = typeinfer tenv e2 in 
+     match t2 with
+     | TyList t when t = t1 -> TyList t1
+     | _ -> raise("Type mismatch in Cons: second argument must be a list of the same type as the first argument")
+
+(*MatchList*)
+|MatchList(e1,e2,ident,e3) ->
+ let t1 = typeinfer tenv e1 in
+ let t2 = typeinfer tenv e2 in
+ match t1 with
+   | TyList t ->
+     let extended_env = (ident, TyList t) :: tenv in 
+     let t3 = typeinfer extended_env e3 in
+     if t2 = t3 then t2
+     else raise("tipos do corpo não condizem")
+   | _ -> raise ("o e1 deve ser uma lista")
+
+(*MatchMaybe*)
+ |MatchMaybe(e1,e2,ident,e3) ->
+  let t1 = typeinfer tenv e1 in
+  match t1 with
+  | TyMaybe t ->
+       let t2 = typeinfer tenv e2 in
+       let extended_env = (ident, t) :: tenv in
+       let t3 = typeinfer extended_env e3 in
+       if t2 = t3 then t2
+       else raise ("e2 e e3 devem ser iguais")
+  | _ -> raise ("e1 deve ser do tipo Maybe")
+
+    
+
+    
                   
   
-(**+++++++++++++++++++++++++++++++++++++++++*)
+(*+++++++++++++++++++++++++++++++++++++++++*)
 (*                 AVALIADOR                *)
 (*++++++++++++++++++++++++++++++++++++++++++*)
 
@@ -252,7 +319,7 @@ let int_bse (e:expr) : unit =
     TypeError msg ->  print_string ("erro de tipo - " ^ msg) 
   | BugTypeInfer  ->  print_string "corrigir bug em typeinfer"
   | BugParser     ->  print_string "corrigir bug no parser para let rec"
-                        
+
 
 
 
