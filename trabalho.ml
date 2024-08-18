@@ -140,26 +140,45 @@ let rec typeinfer (tenv:tenv) (e:expr) : tipo =
       else 
         raise (TypeError "tipo da funcao recursiva é diferente do declarado")
   | LetRec _ -> raise BugParser
-  (*==========  TRABALHO: Novas regras ===================*)
-  (*------ Nothing ----------- *)
+  (*==========  TRABALHO: ==================================*)
+  (*------ Nothing ---------------- *)
   | Nothing(t) -> TyMaybe t 
-    (*------ Nil  ----------- *)
+  (*------ Just ------------------- *)
+  | Just(e) -> 
+      let t = typeinfer tenv e in 
+      TyMaybe t
+  (*------ MatchMaybe ------------- *)
+  | MatchMaybe(e,e1,ident,e2) ->
+      let t1 = typeinfer tenv e1 in
+      (
+        match t1 with
+        | TyMaybe t' ->
+            let t1 = typeinfer tenv e1 in
+            let extended_env = (ident, t') :: tenv in
+            let t2 = typeinfer extended_env e2 in
+            if t1 = t2 then t1
+            else raise (TypeError "[T-MatchMB] e2 e e3 devem ser iguais")
+        | _ -> raise (TypeError "[T-MatchMB] e1 deve ser do tipo Maybe")
+      )
+  (*========== LISTAS  ===============*)
+  (*------ Nil  ----------- *)
   | Nil(t) -> TyList t
-    (*------ Just ----------- *)
-  | Just(e1) -> 
-      let t1 = typeinfer tenv e1 in 
-      TyMaybe t1
   (*------ Cons ----------- *)
   | Cons(e1,e2) ->
       let t1 = typeinfer tenv e1 in 
       let t2 = typeinfer tenv e2 in 
       ( match t2 with
         | TyList t when t = t1 -> TyList t1
-        | _ -> raise (TypeError "[CONS] /> segundo argumento deve ser to mesmo tipo do primeiro")
+        | _ -> raise (TypeError "[CONS] segundo argumento deve ser to mesmo tipo do primeiro")
       )
 
         
   (*------ Match List ----------- *)
+  (* 
+    Γ⊢e:listT'  Γ⊢e1 :T Γ,x:T′,xs:listT′ ⊢e2 :T
+    ---------------------------------------------
+    Γ⊢match e with nil -> e1 | x::xs → e2 :T
+  *)
   | MatchList(e1, e2, head_ident, tail_ident, e3) ->
       let t1 = typeinfer tenv e1 in
       (
@@ -172,20 +191,28 @@ let rec typeinfer (tenv:tenv) (e:expr) : tipo =
             then 
               t2
             else 
-              raise( TypeError "Type mismatch in MatchList: types of e2 and e3 must be the same")
-        | _ -> raise (TypeError "Type mismatch in MatchList: e1 must be of type List")
+              raise(TypeError  "[T-MatchList] e1 e2 devem ser do mesmo tipo"
+                   )
+        | _ -> raise (TypeError "[T-MatchList] e deve ser do tipo lista")
       )
-(*------ MatchMaybe ----------- *)
-  | MatchMaybe(e1,e2,ident,e3) ->
+  (*------ Map ----------- *)
+  | Map(e1, e2) ->
       let t1 = typeinfer tenv e1 in
-      match t1 with
-      | TyMaybe t ->
-          let t2 = typeinfer tenv e2 in
-          let extended_env = (ident, t) :: tenv in
-          let t3 = typeinfer extended_env e3 in
-          if t2 = t3 then t2
-          else raise (TypeError "e2 e e3 devem ser iguais")
-      | _ -> raise (TypeError "e1 deve ser do tipo Maybe")
+      let t2 = typeinfer tenv e2 in
+      (
+        match t1 with
+          TyList t ->
+            (match t2 with
+               TyFn(t3, t4) ->
+                 if t3 = t 
+                 then 
+                   TyList t4
+                 else 
+                   raise   (TypeError "[Map] função não é do tipo esperado")
+             | _ -> raise  (TypeError "[Map] segundo argumento não é uma função")
+            )
+        | _ -> raise       (TypeError "[MAP] primeiro argumento não é uma lista")) 
+  (* | _ -> raise BugParser *)
 
   
 (*+++++++++++++++++++++++++++++++++++++++++*)
@@ -289,7 +316,7 @@ let rec ttos (t:tipo) : string =
     TyInt  -> "int"
   | TyBool -> "bool"
   | TyFn(t1,t2)   ->  "("  ^ (ttos t1) ^ " --> " ^ (ttos t2) ^ ")"
-  | TyPair(t1,t2) ->  "("  ^ (ttos t1) ^ " * "   ^ (ttos t2) ^ ")"
+| TyPair(t1,t2) ->  "("  ^ (ttos t1) ^ " * "   ^ (ttos t2) ^ ")"
 
 (* função auxiliar que converte valor para string *)
 
@@ -315,8 +342,44 @@ let int_bse (e:expr) : unit =
   | BugTypeInfer  ->  print_string "corrigir bug em typeinfer"
   | BugParser     ->  print_string "corrigir bug no parser para let rec" *)
 
+(* ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+TESTES TESTES TESTES TESTES TESTES TESTES TESTES TESTES TESTES 
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ *)
 
+(*=========== TYPEINFER ============================================*)
+(* ------- CONS -------------*)
+let teste_cons = Cons (Num 1, Cons (Num 2, Nil TyInt))
+(* Inferência de tipos para teste_cons *)
+let tipo_cons = typeinfer [] teste_cons
 
+(* ------- MATCHLIST-------------*)
+
+let lista_test = Cons (Num 42, Nil TyInt)
+
+(* Usando MatchList para verificar o primeiro elemento da lista *)
+let teste_match_list =
+  MatchList (lista_test,  (* Lista de teste *)
+             Bool false,   (* Caso da lista vazia: retornar false *)
+             "x",          (* Nome do identificador para o cabeçote *)
+             "xs",         (* Nome do identificador para a cauda *)
+             If (           (* Caso da lista não vazia *)
+               Binop (Eq, Var "x", Num 42), (* Verifica se o cabeçote é 42 *)
+               Bool true,   (* Se verdadeiro, retorna true *)
+               Bool false   (* Caso contrário, retorna false *)
+             )
+            )
+(* ------- Map-------------*)
+(* Função de incremento *)
+let incremento_fn = Fn ("x", TyInt, Binop (Sum, Var "x", Num 1))
+
+(* Lista de números *)
+let lista_numeros = Cons (Num 1, Cons (Num 2, Cons (Num 3, Nil TyInt)))
+
+(* Map aplicando incremento_fn à lista_numeros *)
+let teste_map = Map (lista_numeros, incremento_fn)
+
+(* Inferência de tipos para teste_map *)
+let tipo_teste_map = typeinfer [] teste_map
          
 
-               
+          
