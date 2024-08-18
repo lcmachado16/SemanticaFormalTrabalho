@@ -10,21 +10,21 @@
 (*  SINTAXE, AMBIENTE de TIPOS e de VALORES *)
 (*++++++++++++++++++++++++++++++++++++++++++*)
 
+(*===== Tipos ========== *)
 type tipo =
     TyInt
   | TyBool
   | TyFn of tipo * tipo
   | TyPair of tipo * tipo
-
-  (*TRABALHO: NOVOS TIPOS*)
+  (*------- TRABALHO: NOVOS TIPOS ----------*)
   | TyList of tipo
   | TyMaybe of tipo
               
-
+(*------ Tipos "auxiliares" ---------*)
 type ident = string
-
 type op = Sum | Sub | Mult | Div | Eq | Gt | Lt | Geq | Leq 
 
+(*===== Expressoes ========== *)
 type expr =
   | Num of int
   | Var of ident
@@ -38,15 +38,16 @@ type expr =
   | App of expr * expr
   | Let of ident * tipo * expr * expr
   | LetRec of ident * tipo * expr  * expr
-  (*TRABALHO: NOVAS EXPRESSOES*)
-  (*tipo maybe*)
-  | Nothing of tipo
-  | Just of expr 
-  | MatchMaybe of expr * expr * ident * expr
-  (*tipo list*)
-  | Nil of tipo 
-  | Cons  of expr*expr
-  | MatchList of expr*expr*ident*ident*expr 
+  (*------- TRABALHO: Novas Expressoes ----------*)
+  (*---- tipo maybe -----*)
+  | Nothing     of tipo
+  | Just        of expr 
+  | MatchMaybe  of expr * expr * ident * expr
+  (*------ tipo list ----- *)
+  | Nil       of tipo 
+  | Cons      of expr * expr
+  | MatchList of expr * expr * ident * ident * expr 
+  | Map       of expr * expr
 
 (*===== VALORES ========== *)
 type valor = 
@@ -55,18 +56,17 @@ type valor =
   | VPair of valor * valor
   | VClos  of ident * expr * renv
   | VRClos of ident * ident * expr * renv 
- (*__TRABALHO: NOVOS VALORES__*)
-  | VNothing of tipo
-  | Vjust of valor
-  | Nil of tipo 
-  | Vlist of valor*valor
-  | VCons of valor*valor
+ (*------ TRABALHO: Novos Valores ---------*)
+  | VNothing  of tipo
+  | VJust     of valor
+  | VNil      of tipo 
+  | VCons     of valor * valor
+  (* | Vlist of valor*valor *)
 
 and  
   renv = (ident * valor) list
               
 type tenv = (ident * tipo) list
-
   
 (* exceções que não devem ocorrer  *) 
 exception BugParser
@@ -96,6 +96,7 @@ let rec typeinfer (tenv:tenv) (e:expr) : tipo =
          | Eq | Lt | Gt | Geq | Leq -> TyBool)
       else 
         raise (TypeError "operando nao é do tipo int") 
+  (*------ PARES -----------*)
   | Pair(e1,e2) -> TyPair(typeinfer tenv e1, typeinfer tenv e2) 
   | Fst e1 ->
       (match typeinfer tenv e1 with
@@ -105,6 +106,7 @@ let rec typeinfer (tenv:tenv) (e:expr) : tipo =
       (match typeinfer tenv e1 with
          TyPair(_,t2) -> t2
        | _ -> raise (TypeError "snd espera tipo par")) 
+  (*------- If ----------*)
   | If(e1,e2,e3) ->
       (match typeinfer tenv e1 with
          TyBool ->
@@ -125,6 +127,7 @@ let rec typeinfer (tenv:tenv) (e:expr) : tipo =
            else 
              raise (TypeError "tipo argumento errado" )
        | _ -> raise (TypeError "tipo função era esperado")) 
+  (*------- Expressoes Let ----------*)
   | Let(x,t,e1,e2) ->
       if (typeinfer tenv e1) = t then typeinfer ((x,t) :: tenv) e2
       else raise (TypeError "expressão nao é do tipo declarado em Let" ) 
@@ -137,25 +140,26 @@ let rec typeinfer (tenv:tenv) (e:expr) : tipo =
       else 
         raise (TypeError "tipo da funcao recursiva é diferente do declarado")
   | LetRec _ -> raise BugParser
-  (*====== TRABALHO: NOVAS ============*)
-  (*Nothing*)
-  |Nothing(t) -> TyMaybe t 
-  (*Nil*)
+  (*==========  TRABALHO: Novas regras ===================*)
+  (*------ Nothing ----------- *)
+  | Nothing(t) -> TyMaybe t 
+    (*------ Nil  ----------- *)
   | Nil(t) -> TyList t
-  (*just*)
+    (*------ Just ----------- *)
   | Just(e1) -> 
       let t1 = typeinfer tenv e1 in 
       TyMaybe t1
-   (*Cons*)
+  (*------ Cons ----------- *)
   | Cons(e1,e2) ->
       let t1 = typeinfer tenv e1 in 
       let t2 = typeinfer tenv e2 in 
-      (
-        match t2 with
+      ( match t2 with
         | TyList t when t = t1 -> TyList t1
         | _ -> raise (TypeError "[CONS] /> segundo argumento deve ser to mesmo tipo do primeiro")
       )
-  (*Match List*)
+
+        
+  (*------ Match List ----------- *)
   | MatchList(e1, e2, head_ident, tail_ident, e3) ->
       let t1 = typeinfer tenv e1 in
       (
@@ -171,8 +175,7 @@ let rec typeinfer (tenv:tenv) (e:expr) : tipo =
               raise( TypeError "Type mismatch in MatchList: types of e2 and e3 must be the same")
         | _ -> raise (TypeError "Type mismatch in MatchList: e1 must be of type List")
       )
-
-  (*MatchMaybe*)
+(*------ MatchMaybe ----------- *)
   | MatchMaybe(e1,e2,ident,e3) ->
       let t1 = typeinfer tenv e1 in
       match t1 with
@@ -189,7 +192,7 @@ let rec typeinfer (tenv:tenv) (e:expr) : tipo =
 (*                 AVALIADOR                *)
 (*++++++++++++++++++++++++++++++++++++++++++*) 
 exception BugTypeInfer
-
+(* 
 let compute (oper: op) (v1: valor) (v2: valor) : valor =
   match (oper, v1, v2) with
     (Sum, VNum(n1), VNum(n2)) -> VNum (n1 + n2)
@@ -277,7 +280,7 @@ let rec eval (renv:renv) (e:expr) :valor =
        | VCons (v1, v2) ->
            eval ((head_ident, v1) :: (tail_ident, v2) :: renv) e3
        | _ -> raise (TypeError "MatchList espera uma lista"))
-                  
+                   *)
 
 
 (* função auxiliar que converte tipo para string 
