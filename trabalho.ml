@@ -202,7 +202,9 @@ let rec typeinfer (tenv:tenv) (e:expr) : tipo =
         match t2 with 
         | TyFn (t1',t2') -> 
             if t1 = t1' then t2'
-            else raise (TypeError "Os tipos de entrada e saída das funções não são compatíveis")
+            else raise (TypeError "O tipo do argumento passado e o argumento esperado na funcao nao sao iguais  ")
+        | _ -> raise (TypeError "A segunda funcao do pipe deve ser do tipo funcao")
+                
       )
     
   | _ -> raise BugParser
@@ -312,14 +314,18 @@ let rec eval (renv:renv) (e:expr) :valor =
         | _ -> raise (TypeError "MatchList espera uma lista")
       )
 
-  (*------ Pipe ----------- *)
+  (*---------------- Pipe ------------------------- *)
   | Pipe (e1, e2) ->
       let v1 = eval renv e1 in
       let v2 = eval renv e2 in
       (
         match v2 with
-          VClos (x, e, renv') -> eval ((x, v1) :: renv) e
+          VClos  (x, e, renv')   -> eval  (         (x, v1) :: renv') e
+        | VRClos (f,x, e, renv') -> eval ((f,v2) :: (x, v1) :: renv') e
         | _ -> raise (TypeError "Pipe espera uma função como segundo argumento"))
+      
+      
+
 
   (* | Map (e , e1) ->
       let v1 = eval renv e in
@@ -415,10 +421,16 @@ let tipo_teste_map = typeinfer [] teste_map  *)
 
 (*--------------------- PIPE ---------------------------------------*)
 (* let teste_pipe = Pipe (Num 1, Fn ("x", TyInt, Binop (Sum, Var "x", Num 1))) *)
-let teste_pipe = Pipe(Num 2, Fn("x", TyInt, Binop(Gt, Var "x", Num 3)))
+let teste_pipe_t1 = Pipe(Num 2, Fn("x", TyInt, Binop(Gt, Var "x", Num 3)))
+let teste_pipe_t2 = Pipe(Num 2, Fn("x", TyInt, Binop(Sum, Var "x", Num 3)))
 (* Inferência de tipos para teste_pipe *)
 
-let tipo_pipe = typeinfer [] teste_pipe
+let tipo_pipe_t1 = typeinfer [] teste_pipe_t1
+let eval_pipe_t1 = eval [] teste_pipe_t1
+    
+    
+let tipo_pipe_t2 = typeinfer [] teste_pipe_t2 
+let eval_pipe_t2 = eval [] teste_pipe_t2
 
 
 (*--------------------- LOOKUP ---------------------------------------*)
