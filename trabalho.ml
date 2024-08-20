@@ -47,7 +47,7 @@ type expr =
   | Nil       of tipo 
   | Cons      of expr * expr
   | MatchList of expr * expr * ident * ident * expr 
-  | Map       of expr * expr
+  | Pipe       of expr * expr
 
 (*===== VALORES ========== *)
 type valor = 
@@ -153,7 +153,7 @@ let rec typeinfer (tenv:tenv) (e:expr) : tipo =
       (
         match t1 with
         | TyMaybe t' ->
-            let t1 = typeinfer tenv e1 in
+            let t1 = typeinfer tenv e in
             let extended_env = (ident, t') :: tenv in
             let t2 = typeinfer extended_env e2 in
             if t1 = t2 then t1
@@ -195,23 +195,17 @@ let rec typeinfer (tenv:tenv) (e:expr) : tipo =
                    )
         | _ -> raise (TypeError "[T-MatchList] e deve ser do tipo lista")
       )
-  (*------ Map ----------- *)
-  | Map(e1, e2) ->
-      let t1 = typeinfer tenv e1 in
-      let t2 = typeinfer tenv e2 in
-      (
-        match t1 with
-          TyList t ->
-            (match t2 with
-               TyFn(t3, t4) ->
-                 if t3 = t 
-                 then 
-                   TyList t4
-                 else 
-                   raise   (TypeError "[Map] função não é do tipo esperado")
-             | _ -> raise  (TypeError "[Map] segundo argumento não é uma função")
-            )
-        | _ -> raise       (TypeError "[MAP] primeiro argumento não é uma lista")) 
+(*------ PIPE ------------------------- *)
+  | Pipe(e1,e2) -> 
+      let t1 =  typeinfer tenv e1 in
+      let t2 = typeinfer tenv e2 in(
+        match t2 with 
+        | TyFn (t1',t2') -> 
+            if t1 = t1' then t2'
+            else raise (TypeError "Os tipos de entrada e saída das funções não são compatíveis")
+      )
+    
+  | _ -> raise BugParser
   (* | _ -> raise BugParser *)
 
   
@@ -285,18 +279,22 @@ let rec eval (renv:renv) (e:expr) :valor =
       let renv'=  (f, VRClos(f,x,e1,renv)) :: renv
       in eval renv' e2 
   | LetRec _ -> raise BugParser 
-    
-  (* Novas expressões para Maybe *)
+   (*========== TRABALHO  ===============*)
+  (*------ Nothing ---------------- *)
   | Nothing t -> VNothing t
+  (*------ Just ------------------- *)
   | Just e1 -> VJust (eval renv e1)
+  (*------ MatchMaybe ------------- *)
   | MatchMaybe (e1, e2, ident, e3) ->
       (match eval renv e1 with
          VNothing _ -> eval renv e2
        | VJust v -> eval ((ident, v) :: renv) e3
        | _ -> raise (TypeError "MatchMaybe espera um valor Maybe"))
 
-  (* Novas expressões para List *)
+  (*========== LISTAS  ===============*)
+  (*------ Nil  ----------- *)
   | Nil t -> VNil t
+  (*------ Cons ----------- *)
   | Cons (e1, e2) ->
       let v1 = eval renv e1 in
       let v2 = eval renv e2 in
@@ -304,13 +302,25 @@ let rec eval (renv:renv) (e:expr) :valor =
          VNil t -> VCons (v1, v2)
        | VCons (_, _) -> VCons (v1, v2)
        | _ -> raise (TypeError "Cons espera uma lista como segundo argumento"))
-  | MatchList (e, e1, head_ident, tail_ident, e2) ->
-      (match eval renv e with
-         VNil _ -> eval renv e1
-       | VCons (v1, v2) ->
-           eval ((head_ident, v1) :: (tail_ident, v2) :: renv) e2
-       | _ -> raise (TypeError "MatchList espera uma lista")
+  (*--------------- Match List --------------- *)
+  | MatchList (e, e1, x, xs, e2) ->
+      (
+        match eval renv e with
+          VNil _ -> eval renv e1
+        | VCons (v1, v2) ->
+            eval ((x, v1) :: (xs, v2) :: renv) e2
+        | _ -> raise (TypeError "MatchList espera uma lista")
       )
+
+  (*------ Pipe ----------- *)
+  | Pipe (e1, e2) ->
+      let v1 = eval renv e1 in
+      let v2 = eval renv e2 in
+      (
+        match v2 with
+          VClos (x, e, renv') -> eval ((x, v1) :: renv) e
+        | _ -> raise (TypeError "Pipe espera uma função como segundo argumento"))
+
   (* | Map (e , e1) ->
       let v1 = eval renv e in
       let v2 = eval renv e1 in
@@ -321,7 +331,7 @@ let rec eval (renv:renv) (e:expr) :valor =
             VCons (eval renv (App (v2, v1)), eval renv (Map (v2, v1)))
             | _ -> raise (TypeError "Map espera uma lista")
       ) *)
-  | _ -> raise NotImplementedYet
+  (* | _ -> raise NotImplementedYet *)
 
 
 (*================ <Funcoes Auxiliares> ================================================*)
@@ -392,7 +402,7 @@ let teste_match_list =
             )
 (* ------- Map-------------*)
 (* Função de incremento *)
-let incremento_fn = Fn ("x", TyInt, Binop (Sum, Var "x", Num 1))
+(* let incremento_fn = Fn ("x", TyInt, Binop (Sum, Var "x", Num 1))
 
 (* Lista de números *)
 let lista_numeros = Cons (Num 1, Cons (Num 2, Cons (Num 3, Nil TyInt)))
@@ -401,7 +411,20 @@ let lista_numeros = Cons (Num 1, Cons (Num 2, Cons (Num 3, Nil TyInt)))
 let teste_map = Map (lista_numeros, incremento_fn)
 
 (* Inferência de tipos para teste_map *)
-let tipo_teste_map = typeinfer [] teste_map 
+let tipo_teste_map = typeinfer [] teste_map  *)
+
+(*--------------------- PIPE ---------------------------------------*)
+(* let teste_pipe = Pipe (Num 1, Fn ("x", TyInt, Binop (Sum, Var "x", Num 1))) *)
+let teste_pipe = Pipe(Num 2, Fn("x", TyInt, Binop(Gt, Var "x", Num 3)))
+(* Inferência de tipos para teste_pipe *)
+
+let tipo_pipe = typeinfer [] teste_pipe
+
+
+(*--------------------- LOOKUP ---------------------------------------*)
+
+(*=========== EVAL ============================================*)
+(* ------- CONS -------------*)
   
 (* ============================================================================= *) 
 
@@ -422,9 +445,9 @@ let rec lookup (k: int) (l: expr) : expr =
 
 let base_dados = 
   Cons(Pair(Num(1), Num(10))
-  ,Cons(Pair(Num(2), Num(20))
-  ,Cons(Pair(Num(3), Num(30))
-  ,Cons(Pair(Num(4), Num(40)),
+      ,Cons(Pair(Num(2), Num(20))
+           ,Cons(Pair(Num(3), Num(30))
+                ,Cons(Pair(Num(4), Num(40)),
                       Cons(Pair(Num(5), Num(50)),
                            Nil(TyPair(TyInt, TyInt)))))))
 
